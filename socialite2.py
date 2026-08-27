@@ -260,12 +260,12 @@ def build_parser():
                       help="Messages (content) per user to load (default: %(default)s)")
     load.add_argument("--load-batch-size", type=int, default=100,
                       help="Batch size for bulk inserts during load (default: %(default)s)")
-    load.add_argument("--follow-distribution", type=str, default="zipfian",
+    load.add_argument("--follow-distribution", type=str, default="uniform",
                       choices=["uniform", "zipfian", "latest"],
                       help="Distribution used to select follow targets during load (default: %(default)s)")
 
     run = parser.add_argument_group("run")
-    run.add_argument("--user-distribution", type=str, default="zipfian",
+    run.add_argument("--user-distribution", type=str, default="uniform",
                      choices=["uniform", "zipfian", "latest"],
                      help="Distribution used to pick the acting user (default: %(default)s)")
     run.add_argument("--content-distribution", type=str, default="latest",
