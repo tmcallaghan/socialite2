@@ -567,13 +567,13 @@ def reporter(perf_q, num_workers, args):
 
 def _print_run_summary(total_counts, total_sum_ms, merged_samples,
                        total_errors, total_elapsed, writer, fh):
-    print("\n" + "=" * 100)
+    print("\n" + "=" * 105)
     print("FINAL SUMMARY (run phase)")
-    print("=" * 100)
+    print("=" * 105)
     header = (f"{'operation':<25}{'count':>12}{'ops/sec':>12}{'mean_ms':>10}"
               f"{'p50':>10}{'p95':>10}{'p99':>10}{'errors':>10}")
     print(header)
-    print("-" * 100)
+    print("-" * 105)
     writer.writerow([])
     writer.writerow(["FINAL_SUMMARY_RUN"])
     writer.writerow(["operation", "count", "ops_per_sec", "mean_ms",
@@ -592,15 +592,15 @@ def _print_run_summary(total_counts, total_sum_ms, merged_samples,
         grand_count += count
         grand_sum += ssum
         grand_errors += errs
-        print(f"{op:<22}{count:>12}{ops_sec:>12.1f}{mean_ms:>10.2f}"
+        print(f"{op:<25}{count:>12}{ops_sec:>12.1f}{mean_ms:>10.2f}"
               f"{pct[50]:>10.2f}{pct[95]:>10.2f}{pct[99]:>10.2f}{errs:>10}")
         writer.writerow([op, count, f"{ops_sec:.2f}", f"{mean_ms:.4f}",
                          f"{pct[50]:.4f}", f"{pct[95]:.4f}", f"{pct[99]:.4f}", errs])
 
-    print("-" * 100)
+    print("-" * 105)
     overall_mean = (grand_sum / grand_count) if grand_count > 0 else 0.0
     overall_ops_sec = grand_count / total_elapsed
-    print(f"{'TOTAL':<22}{grand_count:>12}{overall_ops_sec:>12.1f}"
+    print(f"{'TOTAL':<25}{grand_count:>12}{overall_ops_sec:>12.1f}"
           f"{overall_mean:>10.2f}{'':>10}{'':>10}{'':>10}{grand_errors:>10}")
     print(f"\nElapsed: {total_elapsed:.1f}s   Total ops: {grand_count}   "
           f"Overall: {overall_ops_sec:.1f} ops/sec   Errors: {grand_errors}")
