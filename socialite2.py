@@ -254,7 +254,7 @@ def build_parser():
                       help="Drop existing collections before loading.")
     load.add_argument("--users", type=int, default=1000,
                       help="Number of users to load (default: %(default)s)")
-    load.add_argument("--maxfollows", type=int, default=100,
+    load.add_argument("--max-follows", type=int, default=100,
                       help="Maximum follows per user (default: %(default)s)")
     load.add_argument("--messages-per-user", type=int, default=100,
                       help="Messages (content) per user to load (default: %(default)s)")
@@ -753,7 +753,7 @@ def load_worker(worker_id, phase, args, perf_q):
             following_ops = []
             for i in range(start, end):
                 me = user_id(i)
-                k = rng.randint(0, args.maxfollows)
+                k = rng.randint(0, args.max_follows)
                 picked = set()
                 attempts = 0
                 max_attempts = k * 5 + 10
@@ -1115,7 +1115,7 @@ def _run_phase(target, phase_args, args, num_workers):
 
 def run_load(args):
     print(f"socialite2 load: uri={args.uri} db={args.database} "
-          f"users={args.users} maxfollows={args.maxfollows} "
+          f"users={args.users} max-follows={args.max_follows} "
           f"messages/user={args.messages_per_user} processes={args.processes} "
           f"follow-dist={args.follow_distribution}")
     print("Creating collections and indexes ...")
