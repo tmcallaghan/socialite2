@@ -570,7 +570,7 @@ def _print_run_summary(total_counts, total_sum_ms, merged_samples,
     print("\n" + "=" * 100)
     print("FINAL SUMMARY (run phase)")
     print("=" * 100)
-    header = (f"{'operation':<22}{'count':>12}{'ops/sec':>12}{'mean_ms':>10}"
+    header = (f"{'operation':<25}{'count':>12}{'ops/sec':>12}{'mean_ms':>10}"
               f"{'p50':>10}{'p95':>10}{'p99':>10}{'errors':>10}")
     print(header)
     print("-" * 100)
