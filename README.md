@@ -1,2 +1,3 @@
 # socialite2
-Python-based implementation of the [Socialite](https://github.com/mongodb-labs/socialite/tree/master/src/main/java/com/mongodb/socialite) social media benchmark
+
+socialite2 is a Python implementation of the [Socialite](https://github.com/mongodb-labs/socialite/tree/master/src/main/java/com/mongodb/socialite) social media benchmark for MongoDB API compatible databases. It is a single-script benchmark tool that can load data and execute the benchmark against any MongoDB-compatible endpoint (MongoDB, Amazon DocumentDB, Azure DocumentDB, and [Open Source DocumentDB](https://github.com/documentdb/documentdb)).
