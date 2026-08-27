@@ -3,6 +3,9 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+# my runner scripts
+doit*.bash
+
 # C extensions
 *.so
 
