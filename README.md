@@ -96,5 +96,3 @@ pytest test_socialite2.py -v
 - [Socialite](https://github.com/mongodb-labs/socialite) — the original Java benchmark
 - [py-mongo-sysbench](https://github.com/aws-samples/amazon-documentdb-samples/tree/master/samples/py-mongo-sysbench) and [python-bench02](https://github.com/aws-samples/amazon-documentdb-samples/tree/master/samples/python-bench02) — architectural inspiration
 - [YCSB generators](https://github.com/brianfrankcooper/YCSB/tree/master/core/src/main/java/site/ycsb/generator) — the reference Zipfian / scrambled / latest implementations
-
-<!-- git write-access verification: this line will be reverted -->
