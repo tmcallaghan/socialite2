@@ -248,6 +248,8 @@ def build_parser():
                         help="Recent intervals to average for smoothed throughput (default: %(default)s)")
     common.add_argument("--seed", type=int, default=42,
                         help="Base random seed; each worker derives its own (default: %(default)s)")
+    common.add_argument("--compression", type=str, default="default", choices=["default","none"], help="Collection compression (default: %(default)s)")
+    common.add_argument("--worker-report-seconds", type=int, default=5, help="Number of seconds between workers queueing reporting metrics (default: %(default)s)")
 
     load = parser.add_argument_group("load")
     load.add_argument("--drop", action="store_true",
@@ -462,12 +464,20 @@ def reporter(perf_q, num_workers, args):
 
     def drain_available():
         nonlocal completed
+        numMessages = 0
+        #print("drain_available() start")
         while True:
             try:
                 msg = perf_q.get(timeout=0.5)
+                numMessages += 1
+                #print("approximate queue size = {}".format(perf_q.qsize()))
+                #print("-----------------------------------------------------------------------------------------------------------------------")
+                #print("{}".format(msg))
             except queue.Empty:
+                #print("drain_available() done - queue is empty - processed {} messages".format(numMessages))
                 return
             except (EOFError, OSError):
+                #print("drain_available() done - hit EOFError or OSError - processed {} messages".format(numMessages))
                 return
             name = msg.get("name")
             if name == "opBatch":
@@ -477,6 +487,7 @@ def reporter(perf_q, num_workers, args):
             elif name == "processCompleted":
                 completed += 1
             if completed >= num_workers and perf_q_empty(perf_q):
+                #print("drain_available() done - queue is empty - all workers done - processed {} messages".format(numMessages))
                 return
 
     def emit_interval(now):
@@ -648,6 +659,12 @@ def setup_load(args):
         if args.drop:
             for name in ("users", "content", "followers", "following"):
                 db[name].drop()
+                
+        # disable compression if requested and Amazon DocumentDB
+        if args.compression == 'none':
+            for name in ("users", "content", "followers", "following"):
+                print(f"[setup] creating collection {name} with compression disabled")
+                db.create_collection(name=name,storageEngine={"documentDB":{"compression":{"enable":False}}})
 
         # Wrap each index creation so re-running without --drop does not crash.
         try:
@@ -721,7 +738,7 @@ def load_worker(worker_id, phase, args, perf_q):
         def maybe_report(force=False):
             nonlocal last_report, inserts_since, errors_since
             now = time.perf_counter()
-            if force or (now - last_report) >= 2.0:
+            if force or (now - last_report) >= args.worker_report_seconds:
                 perf_q.put({
                     "name": "loadProgress",
                     "worker": worker_id,
@@ -811,13 +828,14 @@ def load_worker(worker_id, phase, args, perf_q):
 def report_collection_info(args):
     """Print a formatted table of collStats for the loaded collections."""
     client = MongoClient(args.uri)
+    GbDivisor = 1024*1024*1024
     try:
         db = client[args.database]
 
         header = (
             f"{'collection':<12} {'count':>12} {'avgObjSize':>12} "
-            f"{'size':>14} {'storageSize':>14} {'compRatio':>10} "
-            f"{'totalIdxSize':>14}"
+            f"{'sizeGb':>14} {'storageSizeGb':>14} {'compRatio':>10} "
+            f"{'totalIdxSizeGb':>14}"
         )
         print("\n" + header)
         print("-" * len(header))
@@ -830,7 +848,7 @@ def report_collection_info(args):
                 continue
 
             count = stats.get("numDocs", stats.get("count", 0)) or 0
-            avg_obj = stats.get("avgObjSize", 0) or 0
+            avg_obj = int(stats.get("avgObjSize", 0)) or 0
             size = stats.get("size", 0) or 0
             storage = stats.get("storageSize", 0) or 0
             total_idx = stats.get("totalIndexSize", 0) or 0
@@ -838,8 +856,8 @@ def report_collection_info(args):
 
             print(
                 f"{name:<12} {count:>12} {avg_obj:>12} "
-                f"{size:>14} {storage:>14} {comp_ratio:>10.2f} "
-                f"{total_idx:>14}"
+                f"{size/GbDivisor:>14.2f} {storage/GbDivisor:>14.2f} {comp_ratio:>10.2f} "
+                f"{total_idx/GbDivisor:>14.2f}"
             )
     finally:
         client.close()
@@ -1085,7 +1103,7 @@ def run_worker(worker_id, args, perf_q):
                 errors[op_name] = errors.get(op_name, 0) + 1
 
             now = time.perf_counter()
-            if now - last_flush >= 2.0:
+            if now - last_flush >= args.worker_report_seconds:
                 flush_batch()
                 last_flush = now
 
