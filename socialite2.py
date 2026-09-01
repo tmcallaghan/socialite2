@@ -21,8 +21,8 @@ across the keyspace rather than clustered at the low indices.
 
 Schema (matches Socialite exactly):
   users     : {_id: "u<i>"}
-  content   : {_id: ObjectId, _a: author, _m: message}   idx {_a:1,_id:1}
-  followers : {_id: ObjectId, _f: owner,  _t: peer}       idx {_f:1,_t:1} unique, {_t:1,_f:1}
+  content   : {_id: ObjectId, _a: author, _m: message}    idx {_a:1,_id:1}
+  followers : {_id: ObjectId, _f: owner,  _t: peer}       idx {_f:1,_t:1} unique, {_t:1,_f:1} unique
   following : {_id: ObjectId, _f: follower,_t: followed}  idx {_f:1,_t:1} unique
 """
 
@@ -705,18 +705,20 @@ def setup_load(args):
             db.content.create_index([("_a", ASCENDING), ("_id", ASCENDING)])
         except Exception as e:
             print(f"[setup] content index skipped: {e}")
+
         try:
             db.followers.create_index([("_f", ASCENDING), ("_t", ASCENDING)], unique=True)
         except Exception as e:
             print(f"[setup] followers unique index skipped: {e}")
         try:
+            db.followers.create_index([("_t", ASCENDING), ("_f", ASCENDING)], unique=True)
+        except Exception as e:
+            print(f"[setup] followers reverse index skipped: {e}")
+
+        try:
             db.following.create_index([("_f", ASCENDING), ("_t", ASCENDING)], unique=True)
         except Exception as e:
             print(f"[setup] following unique index skipped: {e}")
-        try:
-            db.followers.create_index([("_t", ASCENDING), ("_f", ASCENDING)])
-        except Exception as e:
-            print(f"[setup] followers reverse index skipped: {e}")
     finally:
         client.close()
     return None
