@@ -556,9 +556,9 @@ def reporter(perf_q, num_workers, args):
             else:
                 pct = 0.0
                 eta_secs = None
-            print(f"[{elapsed:7.1f}s] inserts={load_total_inserts} "
-                  f"inserts/sec={ins_sec:8.0f} (avg{len(interval_throughput)}={smoothed:8.0f}) "
-                  f"{pct:5.1f}% complete  ETA {_format_hms(eta_secs)}")
+            print(f"[{elapsed:7.1f}s] inserts={load_total_inserts:10d} "
+                  f"inserts/sec={ins_sec:8.0f} (avg{len(interval_throughput):<5}={smoothed:8.0f}) "
+                  f"{pct:5.1f}% complete ETA {_format_hms(eta_secs)}")
             writer.writerow(["load_interval", f"{elapsed:.1f}", "load", dins,
                              f"{ins_sec:.2f}", load_total_inserts,
                              f"{overall_ins_sec:.2f}", ""])
