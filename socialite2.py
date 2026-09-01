@@ -36,6 +36,7 @@ import random
 import string
 import threading
 import time
+import warnings
 from collections import deque
 
 try:
@@ -684,6 +685,7 @@ def _print_load_summary(load_total_inserts, load_phase_inserts,
 # ===========================================================================
 def setup_load(args):
     """Connect, optionally drop collections, and create the Socialite indexes."""
+    warnings.filterwarnings("ignore","You appear to be connected to a DocumentDB cluster.")
     client = MongoClient(args.uri)
     try:
         db = client[args.database]
@@ -757,6 +759,7 @@ def _flush(coll, ops):
 
 def load_worker(worker_id, phase, args, perf_q):
     """Entry point for a load worker process (spawn-safe: own MongoClient)."""
+    warnings.filterwarnings("ignore","You appear to be connected to a DocumentDB cluster.")
     client = MongoClient(args.uri)
     try:
         db = client[args.database]
@@ -859,6 +862,7 @@ def load_worker(worker_id, phase, args, perf_q):
 
 def report_collection_info(args):
     """Print a formatted table of collStats for the loaded collections."""
+    warnings.filterwarnings("ignore","You appear to be connected to a DocumentDB cluster.")
     client = MongoClient(args.uri)
     GbDivisor = 1024*1024*1024
     try:
@@ -1050,6 +1054,7 @@ def build_op_picker(args):
 
 def run_worker(worker_id, args, perf_q):
     """Entry point for a benchmark run worker process (spawn-safe)."""
+    warnings.filterwarnings("ignore","You appear to be connected to a DocumentDB cluster.")
     client = MongoClient(args.uri)
     try:
         db = client[args.database]
