@@ -391,6 +391,28 @@ def perf_q_empty(perf_q):
         return False
 
 
+def _format_hms(seconds):
+    """Format a duration in seconds as HH:MM:SS (or --:--:-- if unknown)."""
+    if seconds is None or seconds != seconds or seconds < 0 or seconds == float("inf"):
+        return "--:--:--"
+    seconds = int(seconds)
+    h, rem = divmod(seconds, 3600)
+    m, s = divmod(rem, 60)
+    return f"{h:02d}:{m:02d}:{s:02d}"
+
+
+def _expected_load_total(phase, args):
+    """Approximate number of inserts expected for a load phase (for % and ETA)."""
+    if phase == "users":
+        return args.users
+    if phase == "follow":
+        # ~max_follows/2 follows per user on average, each -> 2 inserts.
+        return int(args.users * args.max_follows)
+    if phase == "content":
+        return args.users * args.messages_per_user
+    return 0
+
+
 def reporter(perf_q, num_workers, args):
     """Drain the performance queue, print periodic stats, and a final summary."""
     merged_sample_cap = 200000
@@ -525,8 +547,18 @@ def reporter(perf_q, num_workers, args):
             overall_ins_sec = load_total_inserts / max(1e-9, elapsed)
             interval_throughput.append(ins_sec)
             smoothed = sum(interval_throughput) / len(interval_throughput)
+            phase = next(iter(load_phase_inserts), "load")
+            expected_total = _expected_load_total(phase, args)
+            if expected_total > 0:
+                pct = min(100.0, load_total_inserts / expected_total * 100.0)
+                remaining = max(0, expected_total - load_total_inserts)
+                eta_secs = (remaining / smoothed) if smoothed > 0 else None
+            else:
+                pct = 0.0
+                eta_secs = None
             print(f"[{elapsed:7.1f}s] inserts={load_total_inserts} "
-                  f"inserts/sec={ins_sec:8.0f} (avg{len(interval_throughput)}={smoothed:8.0f})")
+                  f"inserts/sec={ins_sec:8.0f} (avg{len(interval_throughput)}={smoothed:8.0f}) "
+                  f"{pct:5.1f}% complete  ETA {_format_hms(eta_secs)}")
             writer.writerow(["load_interval", f"{elapsed:.1f}", "load", dins,
                              f"{ins_sec:.2f}", load_total_inserts,
                              f"{overall_ins_sec:.2f}", ""])
