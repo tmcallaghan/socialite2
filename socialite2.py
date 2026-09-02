@@ -1171,6 +1171,7 @@ def run_load(args):
     print("Creating collections and indexes ...")
     setup_load(args)
 
+    load_start = time.time()
     for phase in ("users", "follow", "content"):
         print(f"\n=== load phase: {phase} ===")
         _run_phase(
@@ -1179,8 +1180,12 @@ def run_load(args):
             args,
             args.processes,
         )
+    load_elapsed = time.time() - load_start
 
     report_collection_info(args)
+    hours, rem = divmod(int(load_elapsed), 3600)
+    minutes, seconds = divmod(rem, 60)
+    print(f"\nTotal data load time: {hours:02d}:{minutes:02d}:{seconds:02d}")
     print(f"\nLoad complete. Metrics written to {args.file_name}.csv")
 
 
