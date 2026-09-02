@@ -21,8 +21,8 @@ across the keyspace rather than clustered at the low indices.
 
 Schema (matches Socialite exactly):
   users     : {_id: "u<i>"}
-  content   : {_id: ObjectId, _a: author, _m: message}   idx {_a:1,_id:1}
-  followers : {_id: ObjectId, _f: owner,  _t: peer}       idx {_f:1,_t:1} unique, {_t:1,_f:1}
+  content   : {_id: ObjectId, _a: author, _m: message}    idx {_a:1,_id:1}
+  followers : {_id: ObjectId, _f: owner,  _t: peer}       idx {_f:1,_t:1} unique, {_t:1,_f:1} unique
   following : {_id: ObjectId, _f: follower,_t: followed}  idx {_f:1,_t:1} unique
 """
 
@@ -36,6 +36,7 @@ import random
 import string
 import threading
 import time
+import warnings
 from collections import deque
 
 try:
@@ -556,9 +557,9 @@ def reporter(perf_q, num_workers, args):
             else:
                 pct = 0.0
                 eta_secs = None
-            print(f"[{elapsed:7.1f}s] inserts={load_total_inserts} "
-                  f"inserts/sec={ins_sec:8.0f} (avg{len(interval_throughput)}={smoothed:8.0f}) "
-                  f"{pct:5.1f}% complete  ETA {_format_hms(eta_secs)}")
+            print(f"[{elapsed:7.1f}s] inserts={load_total_inserts:10d} "
+                  f"inserts/sec={ins_sec:8.0f} (avg{len(interval_throughput):<5}={smoothed:8.0f}) "
+                  f"{pct:5.1f}% complete ETA {_format_hms(eta_secs)}")
             writer.writerow(["load_interval", f"{elapsed:.1f}", "load", dins,
                              f"{ins_sec:.2f}", load_total_inserts,
                              f"{overall_ins_sec:.2f}", ""])
@@ -684,6 +685,7 @@ def _print_load_summary(load_total_inserts, load_phase_inserts,
 # ===========================================================================
 def setup_load(args):
     """Connect, optionally drop collections, and create the Socialite indexes."""
+    warnings.filterwarnings("ignore","You appear to be connected to a DocumentDB cluster.")
     client = MongoClient(args.uri)
     try:
         db = client[args.database]
@@ -703,18 +705,20 @@ def setup_load(args):
             db.content.create_index([("_a", ASCENDING), ("_id", ASCENDING)])
         except Exception as e:
             print(f"[setup] content index skipped: {e}")
+
         try:
             db.followers.create_index([("_f", ASCENDING), ("_t", ASCENDING)], unique=True)
         except Exception as e:
             print(f"[setup] followers unique index skipped: {e}")
         try:
+            db.followers.create_index([("_t", ASCENDING), ("_f", ASCENDING)], unique=True)
+        except Exception as e:
+            print(f"[setup] followers reverse index skipped: {e}")
+
+        try:
             db.following.create_index([("_f", ASCENDING), ("_t", ASCENDING)], unique=True)
         except Exception as e:
             print(f"[setup] following unique index skipped: {e}")
-        try:
-            db.followers.create_index([("_t", ASCENDING), ("_f", ASCENDING)])
-        except Exception as e:
-            print(f"[setup] followers reverse index skipped: {e}")
     finally:
         client.close()
     return None
@@ -757,6 +761,7 @@ def _flush(coll, ops):
 
 def load_worker(worker_id, phase, args, perf_q):
     """Entry point for a load worker process (spawn-safe: own MongoClient)."""
+    warnings.filterwarnings("ignore","You appear to be connected to a DocumentDB cluster.")
     client = MongoClient(args.uri)
     try:
         db = client[args.database]
@@ -859,6 +864,7 @@ def load_worker(worker_id, phase, args, perf_q):
 
 def report_collection_info(args):
     """Print a formatted table of collStats for the loaded collections."""
+    warnings.filterwarnings("ignore","You appear to be connected to a DocumentDB cluster.")
     client = MongoClient(args.uri)
     GbDivisor = 1024*1024*1024
     try:
@@ -1050,6 +1056,7 @@ def build_op_picker(args):
 
 def run_worker(worker_id, args, perf_q):
     """Entry point for a benchmark run worker process (spawn-safe)."""
+    warnings.filterwarnings("ignore","You appear to be connected to a DocumentDB cluster.")
     client = MongoClient(args.uri)
     try:
         db = client[args.database]
