@@ -37,6 +37,7 @@ import string
 import threading
 import time
 import warnings
+import sys
 from collections import deque
 
 try:
@@ -1217,6 +1218,45 @@ def run_benchmark(args):
     print(f"\nRun complete. Metrics written to {args.file_name}.csv")
 
 
+def detect_server_type(args):
+    """Detect the type of server - mongodb, awsdocdb, osddb"""
+    warnings.filterwarnings("ignore","You appear to be connected to a DocumentDB cluster.")
+    client = MongoClient(args.uri)
+    adminDb = client["admin"]
+
+    try:
+        # check for MongoDB
+        try:
+            storageEngines = adminDb.command("buildInfo").get("storageEngines",[])
+            if "wiredTiger" in storageEngines:
+                args.database_type = "mongodb"
+                print("server type detected = MongoDB")
+        except Exception:
+            print("hit exception")
+            pass
+
+        # check for Amazon DocumentDB
+        try:
+            hostname = adminDb.command("serverStatus").get("host","missing-host")
+            if "docdb.amazonaws.com" in hostname:
+                args.database_type = "awsdocdb"
+                print("server type detected = Amazon DocumentDB")
+        except Exception:
+            pass
+
+        # check for Open Source DocumentDB
+        try:
+            docdbVersions = adminDb.command("hello").get("internal",{}).get("documentdb_versions",[])
+            if len(docdbVersions) > 0:
+                args.database_type = "osdocdb"
+                print("server type detected = Open Source DocumentDB")
+        except Exception:
+            pass
+
+    finally:
+        client.close()
+
+
 def main(argv=None):
     args = parse_args(argv)
     if not args.load and not args.run:
@@ -1228,6 +1268,8 @@ def main(argv=None):
 
     if MongoClient is None:
         raise SystemExit("error: pymongo is not installed. Run: pip install pymongo")
+
+    detect_server_type(args)
 
     if args.load:
         run_load(args)
