@@ -696,7 +696,7 @@ def setup_load(args):
                 db[name].drop()
                 
         # disable compression if requested and Amazon DocumentDB
-        if args.compression == 'none' and args.database_type == 'docdb':
+        if args.compression == 'none' and args.database_type == 'awsdocdb':
             for name in ("users", "content", "followers", "following"):
                 print(f"[setup] creating collection {name} with compression disabled")
                 db.create_collection(name=name,storageEngine={"documentDB":{"compression":{"enable":False}}})
