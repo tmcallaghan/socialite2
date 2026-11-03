@@ -696,7 +696,7 @@ def setup_load(args):
                 db[name].drop()
                 
         # disable compression if requested and Amazon DocumentDB
-        if args.compression == 'none':
+        if args.compression == 'none' and args.database_type == 'docdb':
             for name in ("users", "content", "followers", "following"):
                 print(f"[setup] creating collection {name} with compression disabled")
                 db.create_collection(name=name,storageEngine={"documentDB":{"compression":{"enable":False}}})
@@ -1223,35 +1223,47 @@ def detect_server_type(args):
     warnings.filterwarnings("ignore","You appear to be connected to a DocumentDB cluster.")
     client = MongoClient(args.uri)
     adminDb = client["admin"]
+    dbTypeDetected = False
 
     try:
-        # check for MongoDB
-        try:
-            storageEngines = adminDb.command("buildInfo").get("storageEngines",[])
-            if "wiredTiger" in storageEngines:
-                args.database_type = "mongodb"
-                print("server type detected = MongoDB")
-        except Exception:
-            print("hit exception")
-            pass
+        if not dbTypeDetected:
+            # check for MongoDB
+            try:
+                storageEngines = adminDb.command("buildInfo").get("storageEngines",[])
+                if "wiredTiger" in storageEngines:
+                    args.database_type = "mongodb"
+                    print("server type detected = MongoDB")
+                    dbTypeDetected = True
+            except Exception:
+                print("hit exception")
+                pass
 
-        # check for Amazon DocumentDB
-        try:
-            hostname = adminDb.command("serverStatus").get("host","missing-host")
-            if "docdb.amazonaws.com" in hostname:
-                args.database_type = "awsdocdb"
-                print("server type detected = Amazon DocumentDB")
-        except Exception:
-            pass
+        if not dbTypeDetected:
+            # check for Amazon DocumentDB
+            try:
+                hostname = adminDb.command("serverStatus").get("host","missing-host")
+                if "docdb.amazonaws.com" in hostname:
+                    args.database_type = "awsdocdb"
+                    print("server type detected = Amazon DocumentDB")
+                    dbTypeDetected = True
+            except Exception:
+                pass
 
-        # check for Open Source DocumentDB
-        try:
-            docdbVersions = adminDb.command("hello").get("internal",{}).get("documentdb_versions",[])
-            if len(docdbVersions) > 0:
-                args.database_type = "osdocdb"
-                print("server type detected = Open Source DocumentDB")
-        except Exception:
-            pass
+        if not dbTypeDetected:
+            # check for Open Source DocumentDB
+            try:
+                docdbVersions = adminDb.command("hello").get("internal",{}).get("documentdb_versions",[])
+                if len(docdbVersions) > 0:
+                    args.database_type = "osddb"
+                    print("server type detected = Open Source DocumentDB")
+                    dbTypeDetected = True
+            except Exception:
+                pass
+
+        if not dbTypeDetected:
+            args.database_type = "unknown"
+            print("server type detected = UNKNOWN")
+            dbTypeDetected = True
 
     finally:
         client.close()
