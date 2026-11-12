@@ -372,10 +372,10 @@ def reservoir_add(sample_list, value, cap=10000, rng=None, counter=None):
         sample_list.append(value)
 
 
-def csv_writer_for(file_name):
-    """Open (truncating) a CSV file for the given base name; return (fh, writer)."""
+def csv_writer_for(file_name, mode="w"):
+    """Open a CSV file for the given base name ("w" truncates, "a" appends); return (fh, writer)."""
     path = file_name if file_name.endswith(".csv") else file_name + ".csv"
-    fh = open(path, "w", newline="")
+    fh = open(path, mode, newline="")
     return fh, csv.writer(fh)
 
 
@@ -415,13 +415,19 @@ def _expected_load_total(phase, args):
     return 0
 
 
-def reporter(perf_q, num_workers, args):
-    """Drain the performance queue, print periodic stats, and a final summary."""
+def reporter(perf_q, num_workers, args, csv_mode="w", result=None):
+    """Drain the performance queue, print periodic stats, and a final summary.
+
+    csv_mode "a" appends to the CSV written by a previous phase (no new header).
+    If ``result`` is a dict, load-phase totals are stored in it for the caller.
+    """
     merged_sample_cap = 200000
 
     total_counts = {}
     total_sum_ms = {}
     merged_samples = {}
+    merged_seen = {}
+    sample_rng = random.Random(args.seed)
     total_errors = {}
 
     load_total_inserts = 0
@@ -441,8 +447,9 @@ def reporter(perf_q, num_workers, args):
     prev_load_inserts_holder[0] = 0
     interval_throughput = deque(maxlen=max(1, args.num_intervals_average))
 
-    fh, writer = csv_writer_for(args.file_name)
-    header_written = [False]
+    fh, writer = csv_writer_for(args.file_name, csv_mode)
+    header_written = [csv_mode == "a"]
+    is_load = result is not None  # run_load passes a result dict; run does not
 
     def write_header_if_needed(kind):
         if header_written[0]:
@@ -466,12 +473,14 @@ def reporter(perf_q, num_workers, args):
             total_counts[op] = total_counts.get(op, 0) + n
         for op, s in (msg.get("sum_ms", {}) or {}).items():
             total_sum_ms[op] = total_sum_ms.get(op, 0.0) + s
+        # reservoir-sample across the whole run so percentiles are not biased
+        # toward the (cold-cache) start of the run once the cap is reached
         for op, lst in (msg.get("samples", {}) or {}).items():
             bucket = merged_samples.setdefault(op, [])
-            if lst:
-                room = merged_sample_cap - len(bucket)
-                if room > 0:
-                    bucket.extend(lst[:room])
+            for v in lst or ():
+                merged_seen[op] = merged_seen.get(op, 0) + 1
+                reservoir_add(bucket, v, cap=merged_sample_cap,
+                              rng=sample_rng, counter=merged_seen[op])
         for op, e in (msg.get("errors", {}) or {}).items():
             total_errors[op] = total_errors.get(op, 0) + e
 
@@ -513,11 +522,17 @@ def reporter(perf_q, num_workers, args):
             if completed >= num_workers and perf_q_empty(perf_q):
                 #print("drain_available() done - queue is empty - all workers done - processed {} messages".format(numMessages))
                 return
+            # return so the caller can emit an interval even when the queue
+            # never goes quiet for 0.5s (many workers => steady message flow)
+            if time.time() - last_report >= args.report_interval:
+                return
 
     def emit_interval(now):
         elapsed = now - start_time
         interval_secs = max(1e-9, now - last_report)
-        if saw_opbatch or not saw_loadprogress:
+        if is_load and not saw_loadprogress:
+            return  # no load progress yet; don't emit a bogus run-style line
+        if not is_load:
             write_header_if_needed("run")
             overall_interval_ops = 0
             parts = []
@@ -561,10 +576,13 @@ def reporter(perf_q, num_workers, args):
             print(f"[{elapsed:7.1f}s] inserts={load_total_inserts:10d} "
                   f"inserts/sec={ins_sec:8.0f} (avg{len(interval_throughput):<5}={smoothed:8.0f}) "
                   f"{pct:5.1f}% complete ETA {_format_hms(eta_secs)}")
-            writer.writerow(["load_interval", f"{elapsed:.1f}", "load", dins,
+            writer.writerow(["load_interval", f"{elapsed:.1f}", phase, dins,
                              f"{ins_sec:.2f}", load_total_inserts,
                              f"{overall_ins_sec:.2f}", ""])
             fh.flush()
+
+    if is_load:
+        write_header_if_needed("load")  # no-op when appending to a prior phase
 
     # Main loop
     while completed < num_workers:
@@ -595,13 +613,16 @@ def reporter(perf_q, num_workers, args):
 
     total_elapsed = max(1e-9, time.time() - start_time)
 
-    if saw_opbatch or not saw_loadprogress:
+    if not is_load:
         _print_run_summary(total_counts, total_sum_ms, merged_samples,
                            total_errors, total_elapsed, writer, fh)
     else:
         _print_load_summary(load_total_inserts, load_phase_inserts,
                             load_phase_errors, load_total_errors,
                             total_elapsed, writer, fh)
+        if result is not None:
+            result.update(inserts=load_total_inserts, errors=load_total_errors,
+                          elapsed=total_elapsed)
 
     try:
         fh.flush()
@@ -819,7 +840,7 @@ def load_worker(worker_id, phase, args, perf_q):
                         continue
                     picked.add(t)
                     target = user_id(t)
-                    follower_ops.append(InsertOne({"_f": me, "_t": target}))
+                    follower_ops.append(InsertOne({"_f": target, "_t": me}))
                     following_ops.append(InsertOne({"_f": me, "_t": target}))
 
                 if len(follower_ops) >= args.load_batch_size:
@@ -932,7 +953,7 @@ def op_follow(ctx):
     except DuplicateKeyError:
         pass
     try:
-        ctx.db.followers.insert_one({"_f": me, "_t": target})
+        ctx.db.followers.insert_one({"_f": target, "_t": me})
     except DuplicateKeyError:
         pass
     return OP_FOLLOW
@@ -945,7 +966,7 @@ def op_unfollow(ctx):
         return OP_UNFOLLOW
     target = doc["_t"]
     ctx.db.following.delete_one({"_f": me, "_t": target})
-    ctx.db.followers.delete_one({"_f": me, "_t": target})
+    ctx.db.followers.delete_one({"_f": target, "_t": me})
     return OP_UNFOLLOW
 
 
@@ -1090,13 +1111,14 @@ def run_worker(worker_id, args, perf_q):
         sums = {}
         samples = {}
         errors = {}
-        seen = {}  # per-op total seen (for reservoir sampling)
+        seen = {}  # per-op seen in the current batch (for reservoir sampling)
 
         def reset_batch():
             counts.clear()
             sums.clear()
             samples.clear()
             errors.clear()
+            seen.clear()
 
         def flush_batch():
             if not counts and not errors:
@@ -1112,6 +1134,7 @@ def run_worker(worker_id, args, perf_q):
             reset_batch()
 
         n_done = 0
+        errored_ops = set()
         last_flush = time.perf_counter()
 
         while True:
@@ -1128,8 +1151,11 @@ def run_worker(worker_id, args, perf_q):
             ok = True
             try:
                 fn(ctx)
-            except Exception:
+            except Exception as e:
                 ok = False
+                if op_name not in errored_ops:
+                    errored_ops.add(op_name)
+                    print(f"[worker {worker_id}] first {op_name} error: {e!r}", flush=True)
             dt_ms = (time.perf_counter() - t0) * 1000.0
 
             counts[op_name] = counts.get(op_name, 0) + 1
@@ -1138,7 +1164,7 @@ def run_worker(worker_id, args, perf_q):
                 sums[op_name] = sums.get(op_name, 0.0) + dt_ms
                 seen[op_name] = seen.get(op_name, 0) + 1
                 reservoir_add(samples.setdefault(op_name, []), dt_ms,
-                              cap=1000, rng=rng, counter=seen[op_name])
+                              cap=5000, rng=rng, counter=seen[op_name])
             else:
                 errors[op_name] = errors.get(op_name, 0) + 1
 
@@ -1156,10 +1182,11 @@ def run_worker(worker_id, args, perf_q):
 # ===========================================================================
 # Orchestration
 # ===========================================================================
-def _run_phase(target, phase_args, args, num_workers):
+def _run_phase(target, phase_args, args, num_workers, csv_mode="w", result=None):
     """Spawn workers + reporter for one phase and wait for completion."""
     perf_q = mp.Manager().Queue()
-    rep = threading.Thread(target=reporter, args=(perf_q, num_workers, args))
+    rep = threading.Thread(target=reporter,
+                           args=(perf_q, num_workers, args, csv_mode, result))
     rep.start()
     procs = []
     for w in range(num_workers):
@@ -1180,21 +1207,52 @@ def run_load(args):
     setup_load(args)
 
     load_start = time.time()
-    for phase in ("users", "follow", "content"):
+    phase_results = {}
+    for i, phase in enumerate(("users", "follow", "content")):
         print(f"\n=== load phase: {phase} ===")
+        phase_results[phase] = {}
         _run_phase(
             load_worker,
             lambda w, q, _phase=phase: (_phase, args, q),
             args,
             args.processes,
+            csv_mode="w" if i == 0 else "a",  # one CSV for all phases
+            result=phase_results[phase],
         )
     load_elapsed = time.time() - load_start
 
     report_collection_info(args)
+    _print_combined_load_summary(phase_results, load_elapsed, args)
+    print(f"\nLoad complete. Metrics written to {args.file_name}.csv")
+
+
+def _print_combined_load_summary(phase_results, load_elapsed, args):
+    """Print and append to the CSV a per-phase + overall summary of the whole load."""
+    print("\n" + "=" * 80)
+    print("LOAD SUMMARY (all phases)")
+    print("=" * 80)
+    print(f"{'phase':<12}{'inserts':>14}{'errors':>10}{'elapsed_s':>12}{'inserts/sec':>14}")
+    print("-" * 80)
+    fh, writer = csv_writer_for(args.file_name, "a")
+    writer.writerow([])
+    writer.writerow(["LOAD_SUMMARY_ALL_PHASES"])
+    writer.writerow(["phase", "inserts", "errors", "elapsed_sec", "inserts_per_sec"])
+    tot_ins = tot_err = 0
+    for phase, r in phase_results.items():
+        ins, err, el = r.get("inserts", 0), r.get("errors", 0), r.get("elapsed", 0.0)
+        rate = ins / el if el > 0 else 0.0
+        tot_ins += ins
+        tot_err += err
+        print(f"{phase:<12}{ins:>14}{err:>10}{el:>12.1f}{rate:>14.1f}")
+        writer.writerow([phase, ins, err, f"{el:.1f}", f"{rate:.2f}"])
+    rate = tot_ins / load_elapsed if load_elapsed > 0 else 0.0
+    print("-" * 80)
+    print(f"{'TOTAL':<12}{tot_ins:>14}{tot_err:>10}{load_elapsed:>12.1f}{rate:>14.1f}")
+    writer.writerow(["TOTAL", tot_ins, tot_err, f"{load_elapsed:.1f}", f"{rate:.2f}"])
+    fh.close()
     hours, rem = divmod(int(load_elapsed), 3600)
     minutes, seconds = divmod(rem, 60)
     print(f"\nTotal data load time: {hours:02d}:{minutes:02d}:{seconds:02d}")
-    print(f"\nLoad complete. Metrics written to {args.file_name}.csv")
 
 
 def run_benchmark(args):
